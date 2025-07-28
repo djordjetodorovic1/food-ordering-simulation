@@ -1,17 +1,22 @@
 package Client;
 
 import Common.ClientType;
-import Common.Message;
-import Common.MessageType;
+import Messages.LogInMessage;
+import Messages.MessageType;
 import Common.Order;
 import com.google.gson.Gson;
 import javafx.stage.Stage;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
 import java.util.ArrayList;
 
 public class User {
     private String userName;
-    private int UserID;
+    private int userID;
     private ArrayList<Order> activeOrders = new ArrayList<>();
     private ArrayList<Order> previousOrders = new ArrayList<>();
 
@@ -19,34 +24,45 @@ public class User {
     private int port;
     private Stage primaryStage;
 
-    public User(String userName, String hostname, int port, Stage primaryStage) {
+    private Socket socket;
+    private BufferedReader in;
+    private PrintWriter out;
+
+    public User(String userName, String hostname, int port, Stage primaryStage) throws IOException {
         this.userName = userName;
         this.hostname = hostname;
         this.port = port;
         this.primaryStage = primaryStage;
+
+        socket = new Socket(this.hostname, this.port);
+        out = new PrintWriter(socket.getOutputStream(), true);
+        in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
     }
 
     public void execute() {
-        // dodati soket i nit za mrezu pa onda gui ScenaUser na glavnoj niti
-        // test json
         Gson gson = new Gson();
-        Message message = new Message(MessageType.LOGIN, userName, ClientType.USER);
+        Thread receiverThread = new Thread(() -> {
+            try {
+                String response;
+                while ((response = in.readLine()) != null) {
+                    System.out.println(response); // test
+                    //Platform.runLater(() -> ...);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+
+        receiverThread.setDaemon(true); // automatski se gasi kad se GUI zatvori
+        receiverThread.start();
+
+        System.out.println("Connected");
+
+        LogInMessage message = new LogInMessage(MessageType.LOGIN, ClientType.RESTAURANT, userName);
         String json = gson.toJson(message);
-        System.out.println(json);
+        System.out.println(json); // test
         primaryStage.setTitle("Food Ordering Simulation - USER");
         SceneUser.show(primaryStage, this);
-        /*
-        try (Socket clientSocket = new Socket(this.hostname, this.port)) {
-
-
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (UnknownHostException e) {
-            throw new RuntimeException(e);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-         */
     }
 
     public ArrayList<Restaurant> getRestaurants() {
@@ -62,11 +78,11 @@ public class User {
     }
 
     public int getUserID() {
-        return UserID;
+        return userID;
     }
 
     public void setUserID(int userID) {
-        UserID = userID;
+        this.userID = userID;
     }
 
     public ArrayList<Order> getActiveOrders() {

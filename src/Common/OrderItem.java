@@ -8,4 +8,16 @@ public class OrderItem {
         this.itemName = itemName;
         this.quantity = quantity;
     }
+
+    public String getItemName() {
+        return itemName;
+    }
+
+    public int getQuantity() {
+        return quantity;
+    }
+
+    public void setQuantity(int quantity) {
+        this.quantity = quantity;
+    }
 }

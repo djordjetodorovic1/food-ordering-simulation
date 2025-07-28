@@ -18,15 +18,12 @@ public class SceneUser {
         Label lblRestaurants = new Label("Restorani");
         Label lblOrders = new Label("Narudzbe");
 
-        // Dodati funkcionalnosti za listview, radiobutton i button
+        // Dodati funkcionalnosti za listview, radiobutton
 
         ListView<Restaurant> listRestaurants = new ListView<>();
         ListView<Order> listOrders = new ListView<>();
         listRestaurants.getItems().setAll(user.getRestaurants());
         listOrders.getItems().setAll(user.getActiveOrders());
-
-        Button btnRefresh = new Button("Osvježi");
-        btnRefresh.setOnAction(event -> listRestaurants.getItems().setAll(user.getRestaurants()));
 
         RadioButton rbActive = new RadioButton("Aktivne");
         RadioButton rbPrevious = new RadioButton("Prošle");
@@ -36,7 +33,7 @@ public class SceneUser {
 
         HBox hBoxRB = new HBox(30, rbActive, rbPrevious);
         VBox vBoxLeft = new VBox(20);
-        vBoxLeft.getChildren().addAll(lblRestaurants, listRestaurants, btnRefresh);
+        vBoxLeft.getChildren().addAll(lblRestaurants, listRestaurants);
         VBox vBoxRight = new VBox(20);
         vBoxRight.getChildren().addAll(lblOrders, listOrders, hBoxRB);
 

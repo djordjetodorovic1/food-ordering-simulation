@@ -2,5 +2,5 @@ package Messages;
 
 // dodavati po potrebi
 public enum MessageType {
-    LOGIN, ORDER
+    LOGIN, LOGIN_RESPONSE, NEW_ORDER, ORDER_STATE
 }

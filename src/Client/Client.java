@@ -22,6 +22,7 @@ public class Client extends Application {
         SceneStartUp.show(primaryStage, this);
     }
 
+    // kreira instancu odgovarajuce klase i pokrece je
     public void createAccount(String userName, ClientType clientType, File file, Stage primaryStage) {
         try {
             switch (clientType) {

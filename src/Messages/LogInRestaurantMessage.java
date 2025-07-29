@@ -15,4 +15,9 @@ public class LogInRestaurantMessage extends LogInMessage {
     public ArrayList<String> getMenu() {
         return menu;
     }
+
+    @Override
+    public String toString() {
+        return super.toString() + " Menu: " + menu;
+    }
 }

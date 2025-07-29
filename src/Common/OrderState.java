@@ -1,0 +1,5 @@
+package Common;
+
+public enum OrderState {
+    NEW, PREPARING, WAITING_FOR_DELIVERY, DELIVERING, COMPLETED, FAILED
+}

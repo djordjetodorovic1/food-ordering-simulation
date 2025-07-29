@@ -17,7 +17,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class SceneStartUp {
 
     // Na klik "Prijavi me" Clientu se vracaju uneseni podaci za dalje kreiranje naloga
-
     public static void show(Stage primaryStage, Client client) {
         VBox root = new VBox(40);
         root.setPadding(new Insets(20, 20, 20, 20));

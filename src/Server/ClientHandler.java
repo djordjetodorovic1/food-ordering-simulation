@@ -1,6 +1,7 @@
 package Server;
 
 import Common.ClientType;
+import Common.OrderState;
 import Messages.*;
 import com.google.gson.Gson;
 
@@ -26,8 +27,8 @@ public class ClientHandler extends Thread {
         this.client = client;
         this.clientID = clientID;
 
-        fromClient = new BufferedReader(new InputStreamReader(client.getInputStream()));
-        toClient = new PrintWriter(client.getOutputStream(), true);
+        this.fromClient = new BufferedReader(new InputStreamReader(client.getInputStream()));
+        this.toClient = new PrintWriter(client.getOutputStream(), true);
     }
 
     // prihvata poruke od klijenta i poziva odgovarajuce metode
@@ -36,6 +37,7 @@ public class ClientHandler extends Thread {
         try {
             String jsonMsg;
             while ((jsonMsg = fromClient.readLine()) != null) {
+                System.out.println(jsonMsg);
                 Message msg = gson.fromJson(jsonMsg, Message.class);
                 if (msg.getType() == MessageType.LOGIN)
                     handleLogin(jsonMsg);
@@ -43,10 +45,21 @@ public class ClientHandler extends Thread {
                     handleNewOrder(jsonMsg);
                 if (msg.getType() == MessageType.ORDER_STATE)
                     handleOrderState(jsonMsg);
+                if (msg.getType() == MessageType.LOGOUT)
+                    handleLogout(jsonMsg);
             }
         } catch (IOException e) {
-            System.out.println("Error in Thread: " + e.getMessage());
+            System.err.println("Error in Thread: " + e.getMessage());
             e.printStackTrace();
+        } finally {
+            try {
+                if (fromClient != null) fromClient.close();
+                if (toClient != null) toClient.close();
+                if (client != null && !client.isClosed()) client.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            System.err.println("Client thread closed for clientID: " + clientID);
         }
     }
 
@@ -64,28 +77,56 @@ public class ClientHandler extends Thread {
             server.addUser(this);
             this.sendMessage(gson.toJson(new LoginUserResponseMessage(MessageType.LOGIN_RESPONSE, clientID, server.getRestaurantInfos())));
         } else {
-            server.addCourier(this);
             this.sendMessage(gson.toJson(new LoginResponseMessage(MessageType.LOGIN_RESPONSE, clientID)));
+            server.addCourier(this);
         }
     }
 
     // prosljedjuje narudzbu restoranu
     private void handleNewOrder(String jsonMsg) {
         NewOrderMessage newOrderMsg = gson.fromJson(jsonMsg, NewOrderMessage.class);
-        System.out.println(newOrderMsg);
+        // System.out.println(newOrderMsg);
         ClientHandler restaurant = server.getRestaurant(newOrderMsg.getOrder().getRestaurantID());
         restaurant.sendMessage(jsonMsg);
     }
 
     // prosljedjuje stanje narudzbe klijentu
+    // trazi dostupnog dostavljaca ako je na cekanju
     private void handleOrderState(String jsonMsg) {
         OrderStateMessage orderStateMsg = gson.fromJson(jsonMsg, OrderStateMessage.class);
-        ClientHandler user = server.getUser(orderStateMsg.getUserID());
+        ClientHandler user = server.getUser(orderStateMsg.getOrder().getUserID());
         user.sendMessage(jsonMsg);
+
+        if (orderStateMsg.getOrder().getState() == OrderState.WAITING_FOR_DELIVERY) {
+            ClientHandler courier = server.getAvailableCourier();
+            if (courier != null)
+                server.assignCourierToOrder(courier, orderStateMsg.getOrder());
+            else
+                server.addPendingOrder(orderStateMsg.getOrder());
+        }
+    }
+
+    // uklanja klijenta
+    private void handleLogout(String jsonMsg) {
+        LogOutMessage logoutMsg = gson.fromJson(jsonMsg, LogOutMessage.class);
+        switch (logoutMsg.getClientType()) {
+            case RESTAURANT:
+                server.removeRestaurant(logoutMsg.getClientID());
+                server.broadcastToUsers(jsonMsg);
+                break;
+            case USER:
+                server.removeUser(this);
+                // obavjesti ostale koji pripremaju narudzbe
+                break;
+            case COURIER:
+                server.removeCourier(this);
+                // obavjesti user-a ako ima narudzba
+                break;
+        }
     }
 
     // salje poruku klijentu
-    private void sendMessage(String jsonMsg) {
+    public void sendMessage(String jsonMsg) {
         toClient.println(jsonMsg);
     }
 

@@ -27,6 +27,6 @@ public class RestaurantInfo {
 
     @Override
     public String toString() {
-        return "restaurant: '" + restaurantName + "\'(ID" + restaurantID + ")" + ", menu=" + menu;
+        return "restaurant: '" + restaurantName + "'(ID" + restaurantID + ")" + ", menu=" + menu;
     }
 }

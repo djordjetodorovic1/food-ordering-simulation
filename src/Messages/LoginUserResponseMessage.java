@@ -18,6 +18,6 @@ public class LoginUserResponseMessage extends LoginResponseMessage {
 
     @Override
     public String toString() {
-        return " restaurants: " + restaurants;
+        return super.toString() + " restaurants: " + restaurants;
     }
 }

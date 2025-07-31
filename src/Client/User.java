@@ -27,11 +27,11 @@ public class User {
     private String hostname;
     private int port;
     private Stage primaryStage;
+    private Gson gson = new Gson();
 
     private Socket socket;
     private BufferedReader fromServer;
     private PrintWriter toServer;
-    private Gson gson = new Gson();
 
     public User(String userName, String hostname, int port, Stage primaryStage) throws IOException {
         this.userName = userName;
@@ -39,10 +39,10 @@ public class User {
         this.port = port;
         this.primaryStage = primaryStage;
 
-        socket = new Socket(this.hostname, this.port);
-        toServer = new PrintWriter(socket.getOutputStream(), true);
-        fromServer = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        System.err.println("Connected");
+        this.socket = new Socket(this.hostname, this.port);
+        this.toServer = new PrintWriter(socket.getOutputStream(), true);
+        this.fromServer = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        System.err.println("User started...");
     }
 
     // slicno kao kod restorana
@@ -59,18 +59,22 @@ public class User {
                         handleOrderState(responseJson);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                if (socket.isClosed())
+                    System.err.println("Connection closed...");
+                else {
+                    System.err.println("Server not responding...");
+                    SceneRestaurant.showAlert("Server not responding... Connection closed...");
+                    shutdown();
+                }
             }
         });
 
         receiverThread.setDaemon(true); // automatski se gasi kad se GUI zatvori
         receiverThread.start();
 
-        String json = gson.toJson(new LogInMessage(MessageType.LOGIN, ClientType.USER, userName));
-        toServer.println(json);
-        System.out.println(json); // test
-
+        toServer.println(gson.toJson(new LogInMessage(MessageType.LOGIN, ClientType.USER, userName)));
         primaryStage.setTitle("Food Ordering Simulation - USER");
+        primaryStage.setOnCloseRequest(event -> shutdown());
         SceneUser.show(primaryStage, this);
     }
 
@@ -85,11 +89,13 @@ public class User {
 
     // azurira stanje narudzbe
     private void handleOrderState(String responseJson) {
-        OrderStateMessage idMsg = gson.fromJson(responseJson, OrderStateMessage.class);
-        Order order = getActiveOrder(idMsg.getOrderID());
-        order.setState(idMsg.getState());
-        System.out.println(order);
-        // dodati - azuriranje orderState u GUI
+        Order orderMsg = gson.fromJson(responseJson, OrderStateMessage.class).getOrder();
+        Order order = getActiveOrder(orderMsg.getOrderID());
+        order.setState(orderMsg.getState());
+        order.setCourierID(orderMsg.getCourierID());
+        // System.out.println(order);
+        SceneUser.updateOrders(activeOrders);
+        SceneUser.updateOrder(order);
     }
 
     // salje serveru novu narudzbu
@@ -97,7 +103,26 @@ public class User {
         addActiveOrder(order);
         String json = gson.toJson(new NewOrderMessage(MessageType.NEW_ORDER, order));
         toServer.println(json);
-        System.out.println(json);
+        // System.out.println(json);
+    }
+
+    public void cancelOrder(Order order) {
+        //
+    }
+
+    private void shutdown() {
+        try {
+            toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.USER, this.userID)));
+            if (toServer != null)
+                toServer.close();
+            if (fromServer != null)
+                fromServer.close();
+            if (socket != null && !socket.isClosed())
+                socket.close();
+            System.err.println("User stopped...");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public String getUserName() {

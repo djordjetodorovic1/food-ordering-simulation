@@ -19,9 +19,12 @@ import java.util.ArrayList;
 import java.util.Set;
 
 public class SceneUser {
-    public static ListView<RestaurantInfo> listRestaurants = new ListView<>();
-    public static ListView<Order> listOrders = new ListView<>();
-    public static Label lblID;
+    private static ListView<RestaurantInfo> listRestaurants = new ListView<>();
+    private static ListView<Order> listOrders = new ListView<>();
+    private static Label lblID;
+    private static Label lblState;
+    private static Label lblCourierID;
+    private static int selectedOrderID;
 
     // u svim klasama dodati provjere (null, ....)
     public static void show(Stage primaryStage, User user) {
@@ -54,12 +57,10 @@ public class SceneUser {
             }
         });
 
-        // Funkcionalnost: klik na narudžbu
         listOrders.setOnMouseClicked(event -> {
             Order selectedOrder = listOrders.getSelectionModel().getSelectedItem();
-            if (selectedOrder != null) {
-                // dodati prikaz narudzbe
-            }
+            if (selectedOrder != null)
+                showOrder(selectedOrder, user, primaryStage);
         });
 
         HBox hBoxTitle = new HBox(20, lblTitle, lblID);
@@ -124,9 +125,51 @@ public class SceneUser {
         root.getChildren().addAll(btnReturn, vBoxMain);
         root.setStyle("-fx-font: 16 'Comic Sans MS';");
 
+        Scene newOrderScene = new Scene(root, 750, 600);
+        primaryStage.setScene(newOrderScene);
+    }
+
+    private static void showOrder(Order order, User user, Stage primaryStage) {
+        selectedOrderID = order.getOrderID();
+        VBox root = new VBox(40);
+        root.setPadding(new Insets(20, 20, 20, 20));
+
+        Label lblOrderID = new Label("OrderID: " + order.getOrderID());
+        Label lblRestaurant = new Label("RestaurantID: " + order.getRestaurantID());
+        lblCourierID = new Label("CourierID: " + order.getCourierID());
+        lblState = new Label("Order state: " + order.getState());
+
+        ListView<OrderItem> listOrderItems = new ListView<>();
+        listOrderItems.getItems().setAll(order.getOrderItems());
+
+        Image backArrowImg = new Image((new File("resources/backArrow.png")).toURI().toString());
+        ImageView backArrow = new ImageView(backArrowImg);
+        backArrow.setFitWidth(20);
+        backArrow.setFitHeight(20);
+        Button btnReturn = new Button("", backArrow);
+        btnReturn.setOnAction(actionEvent -> show(primaryStage, user));
+
+        Button btnRepeat = new Button("Ponovi narudžbu");
+        Button btnCancel = new Button("Otkaži narudžbu");
+        btnRepeat.setOnAction(event -> {
+            user.sendNewOrder(new Order(user.getOrderIDCounter(), user.getUserID(), order.getRestaurantID(), order.getOrderItems()));
+            show(primaryStage, user);
+        });
+        btnCancel.setOnAction(event -> {
+            user.cancelOrder(order);
+            SceneStartUp.showAlert("Narudžba je otkazana!");
+            show(primaryStage, user);
+        });
+
+        VBox vBoxLeft = new VBox(20, lblOrderID, lblRestaurant, lblCourierID, lblState, btnRepeat, btnCancel);
+        HBox hBoxMain = new HBox(40, vBoxLeft, listOrderItems);
+        hBoxMain.setAlignment(Pos.CENTER);
+
+        root.getChildren().addAll(btnReturn, hBoxMain);
+        root.setStyle("-fx-font: 16 'Comic Sans MS';");
+
         Scene orderScene = new Scene(root, 750, 600);
         primaryStage.setScene(orderScene);
-        primaryStage.show();
     }
 
     public static void updateID(int ID) {
@@ -135,5 +178,17 @@ public class SceneUser {
 
     public static void updateRestaurants(Set<RestaurantInfo> restaurants) {
         Platform.runLater(() -> listRestaurants.getItems().setAll(restaurants));
+    }
+
+    public static void updateOrders(ArrayList<Order> orders) {
+        Platform.runLater(() -> listOrders.getItems().setAll(orders));
+    }
+
+    public static void updateOrder(Order order) {
+        if (selectedOrderID != 0 && selectedOrderID == order.getOrderID())
+            Platform.runLater(() -> {
+                lblState.setText("Order state: " + order.getState());
+                lblCourierID.setText("CourierID: " + order.getCourierID());
+            });
     }
 }

@@ -35,6 +35,10 @@ public class Order {
         return courierID;
     }
 
+    public void setCourierID(int courierID) {
+        this.courierID = courierID;
+    }
+
     public ArrayList<OrderItem> getOrderItems() {
         return orderItems;
     }
@@ -57,14 +61,11 @@ public class Order {
 
     @Override
     public String toString() {
-        return "Order{" +
-                "orderID=" + orderID +
-                ", userID=" + userID +
-                ", restaurantID=" + restaurantID +
-                ", courierID=" + courierID +
-                ", preparationTime=" + preparationTime +
-                ", state=" + state +
-                ", orderItems=" + orderItems +
-                '}';
+        return "Order->" +
+                " orderID: " + orderID +
+                ", userID: " + userID +
+                ", restaurantID: " + restaurantID +
+                ", courierID: " + courierID +
+                ", state: " + state;
     }
 }

@@ -35,7 +35,8 @@ public class Client extends Application {
                     clientRestaurant.execute();
                     break;
                 case COURIER:
-                    //TODO za kurira
+                    Courier clientCourier = new Courier(userName, hostname, port, primaryStage);
+                    clientCourier.execute();
                     break;
             }
         } catch (IOException e) {

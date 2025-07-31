@@ -1,33 +1,21 @@
 package Messages;
 
-import Common.OrderState;
+import Common.Order;
 
 public class OrderStateMessage extends Message {
-    private int orderID;
-    private int userID;
-    private OrderState state;
+    private Order order;
 
-    public OrderStateMessage(MessageType type, int orderID, int userID, OrderState state) {
+    public OrderStateMessage(MessageType type, Order order) {
         super(type);
-        this.orderID = orderID;
-        this.userID = userID;
-        this.state = state;
+        this.order = order;
     }
 
-    public int getOrderID() {
-        return orderID;
-    }
-
-    public int getUserID() {
-        return userID;
-    }
-
-    public OrderState getState() {
-        return state;
+    public Order getOrder() {
+        return order;
     }
 
     @Override
     public String toString() {
-        return super.toString() + " orderID: " + orderID + " userID: " + userID + " state: " + state;
+        return super.toString() + " order: " + order;
     }
 }

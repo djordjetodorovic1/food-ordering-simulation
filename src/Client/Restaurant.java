@@ -10,9 +10,7 @@ import javafx.stage.Stage;
 
 import java.io.*;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Scanner;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,14 +21,14 @@ public class Restaurant {
     private int restaurantID;
     private ArrayList<String> menu = new ArrayList<>();
     private BlockingQueue<Order> pendingOrders = new LinkedBlockingQueue<>();
-    private BlockingQueue<Order> ordersInProgress = new LinkedBlockingQueue<>();
-    private int executionTime = 3000; // milliseconds
+    private Set<Order> ordersInProgress = Collections.synchronizedSet(new HashSet<>());
+    private int executionTime;
     private ExecutorService restaurantWorkersThreadPool;
 
     private String hostname;
     private int port;
     private Stage primaryStage;
-    Gson gson = new Gson();
+    private Gson gson = new Gson();
 
     private Socket socket;
     private BufferedReader fromServer;
@@ -41,19 +39,20 @@ public class Restaurant {
         this.hostname = hostname;
         this.port = port;
         this.primaryStage = primaryStage;
+        this.executionTime = 3000; // milliseconds
         this.restaurantWorkersThreadPool = Executors.newFixedThreadPool(2);
 
         try (Scanner sc = new Scanner(file)) {
             while (sc.hasNext())
                 this.menu.addAll(Arrays.asList(sc.nextLine().split("\\s*,\\s*")));
         } catch (FileNotFoundException e) {
-            SceneRestaurant.showAlert(e.getMessage());
+            e.printStackTrace();
         }
 
-        socket = new Socket(this.hostname, this.port);
-        toServer = new PrintWriter(socket.getOutputStream(), true);
-        fromServer = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        System.err.println("Connected");
+        this.socket = new Socket(this.hostname, this.port);
+        this.toServer = new PrintWriter(socket.getOutputStream(), true);
+        this.fromServer = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        System.err.println("Restaurant started...");
     }
 
     // nit za primanje poruka od servera i gui za restoran
@@ -68,33 +67,39 @@ public class Restaurant {
                         handleLoginResponse(responseJson);
                     if (msg.getType() == MessageType.NEW_ORDER)
                         handleNewOrder(responseJson);
+                    if (msg.getType() == MessageType.LOGOUT)
+                        handleLostUser(responseJson);
+                    if (msg.getType() == MessageType.CANCELED_ORDER)
+                        handleCanceledOrder(responseJson);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                if (socket.isClosed())
+                    System.err.println("Connection closed...");
+                else {
+                    System.err.println("Server not responding...");
+                    SceneRestaurant.showAlert("Server not responding... Connection closed...");
+                    shutdown();
+                }
             }
         });
-
         receiverThread.setDaemon(true); // automatski se gasi kad se GUI zatvori
         receiverThread.start();
 
-        String json = gson.toJson(new LogInRestaurantMessage(MessageType.LOGIN, ClientType.RESTAURANT, name, menu));
-        toServer.println(json);
-        System.out.println(json); // test
-
+        toServer.println(gson.toJson(new LogInRestaurantMessage(MessageType.LOGIN, ClientType.RESTAURANT, name, menu)));
         primaryStage.setTitle("Food Ordering Simulation - RESTAURANT");
+        primaryStage.setOnCloseRequest(event -> shutdown());
         SceneRestaurant.show(this, primaryStage);
     }
-    // Napomena obezbjediti threadPool shutDown i zatvoriti konekcije (stream, socket)
 
     // postavlja ID koji dodjeljuje server
     private void handleLoginResponse(String responseJson) {
-        LoginResponseMessage idMsg = gson.fromJson(responseJson, LoginResponseMessage.class);
-        this.setRestaurantID(idMsg.getClientID());
-        SceneRestaurant.updateID(idMsg.getClientID());
+        int clientID = gson.fromJson(responseJson, LoginResponseMessage.class).getClientID();
+        this.setRestaurantID(clientID);
+        SceneRestaurant.updateID(clientID);
     }
 
     // Dodaje novu narudzbu
-    public void handleNewOrder(String responseJson) {
+    private void handleNewOrder(String responseJson) {
         Order newOrder = gson.fromJson(responseJson, NewOrderMessage.class).getOrder();
         newOrder.setPreparationTime(executionTime * newOrder.getOrderItems().stream()
                 .mapToInt(OrderItem::getQuantity).sum());
@@ -105,28 +110,53 @@ public class Restaurant {
     }
 
     // simulira pripremu narudzbe - azurira GUI i obavjestava user-a o stanju narudzbe
-    public void prepareOrder(Order order) {
+    private void prepareOrder(Order order) {
         Runnable assignment = () -> {
             pendingOrders.remove(order);
             ordersInProgress.add(order);
             order.setState(OrderState.PREPARING);
             SceneRestaurant.updateOrders(this);
-            toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order.getOrderID(), order.getUserID(), order.getState())));
+            toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
 
             try {
                 Thread.sleep(order.getPreparationTime());
             } catch (InterruptedException e) {
-                e.printStackTrace();
-                // obraditi ako se ne izvrsi
+                System.err.println("Restaurant worker stopped...");
             }
 
             ordersInProgress.remove(order);
             order.setState(OrderState.WAITING_FOR_DELIVERY);
             SceneRestaurant.updateOrders(this);
-            toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order.getOrderID(), order.getUserID(), order.getState())));
+            toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
         };
 
         restaurantWorkersThreadPool.submit(assignment);
+    }
+
+    private void handleLostUser(String responseJson) {
+        LogOutMessage msg = gson.fromJson(responseJson, LogOutMessage.class);
+        int userID = msg.getClientID();
+        // dodati Future kad uradim user-a
+    }
+
+    private void handleCanceledOrder(String responseJson) {
+        // dodati i za otkazivanje narudzbe
+    }
+
+    private void shutdown() {
+        try {
+            toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.RESTAURANT, this.restaurantID)));
+            restaurantWorkersThreadPool.shutdownNow();
+            if (toServer != null)
+                toServer.close();
+            if (fromServer != null)
+                fromServer.close();
+            if (socket != null && !socket.isClosed())
+                socket.close();
+            System.err.println("Restaurant closed...");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public String getName() {
@@ -137,7 +167,7 @@ public class Restaurant {
         return restaurantID;
     }
 
-    public void setRestaurantID(int restaurantID) {
+    private void setRestaurantID(int restaurantID) {
         this.restaurantID = restaurantID;
     }
 
@@ -149,20 +179,7 @@ public class Restaurant {
         return pendingOrders;
     }
 
-    public BlockingQueue<Order> getOrdersInProgress() {
+    public Set<Order> getOrdersInProgress() {
         return ordersInProgress;
-    }
-
-    @Override
-    public String toString() {
-        return "Restaurant{" +
-                "name='" + name + '\'' +
-                ", restaurantID=" + restaurantID +
-                ", menu=" + menu +
-                ", ordersInProgress=" + ordersInProgress +
-                ", hostname='" + hostname + '\'' +
-                ", port=" + port +
-                ", primaryStage=" + primaryStage +
-                '}';
     }
 }

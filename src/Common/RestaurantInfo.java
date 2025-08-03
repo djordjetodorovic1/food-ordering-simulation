@@ -3,9 +3,9 @@ package Common;
 import java.util.ArrayList;
 
 public class RestaurantInfo {
-    private int restaurantID;
-    private String restaurantName;
-    private ArrayList<String> menu;
+    private final int restaurantID;
+    private final String restaurantName;
+    private final ArrayList<String> menu;
 
     public RestaurantInfo(int restaurantID, String restaurantName, ArrayList<String> menu) {
         this.restaurantID = restaurantID;
@@ -27,6 +27,6 @@ public class RestaurantInfo {
 
     @Override
     public String toString() {
-        return "restaurant: '" + restaurantName + "'(ID" + restaurantID + ")" + ", menu=" + menu;
+        return "restaurant: '" + restaurantName + "'(ID" + restaurantID + ")" + ", menu: " + menu;
     }
 }

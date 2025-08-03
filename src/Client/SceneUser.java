@@ -2,6 +2,7 @@ package Client;
 
 import Common.Order;
 import Common.OrderItem;
+import Common.OrderState;
 import Common.RestaurantInfo;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -24,9 +25,9 @@ public class SceneUser {
     private static Label lblID;
     private static Label lblState;
     private static Label lblCourierID;
+    private static RadioButton rbActive;
     private static int selectedOrderID;
 
-    // u svim klasama dodati provjere (null, ....)
     public static void show(Stage primaryStage, User user) {
         VBox root = new VBox(40);
         root.setPadding(new Insets(20, 20, 20, 20));
@@ -34,15 +35,12 @@ public class SceneUser {
         Label lblTitle = new Label("Korisnik: " + user.getUserName());
         lblID = new Label(" (ID: " + user.getUserID() + ")");
         Label lblRestaurants = new Label("Restorani");
-        Label lblOrders = new Label("Narudzbe");
-
-        listRestaurants.getItems().setAll(user.getRestaurants());
-        listOrders.getItems().setAll(user.getActiveOrders());
+        Label lblOrders = new Label("Narudžbe");
 
         Button btnRefresh = new Button("Osvježi");
-        btnRefresh.setOnAction(event -> listRestaurants.getItems().setAll(user.refreshRestaurants()));
+        btnRefresh.setOnAction(event -> user.refreshRestaurants());
 
-        RadioButton rbActive = new RadioButton("Aktivne");
+        rbActive = new RadioButton("Aktivne");
         RadioButton rbPrevious = new RadioButton("Prošle");
         ToggleGroup toggleGroup = new ToggleGroup();
         toggleGroup.getToggles().addAll(rbActive, rbPrevious);
@@ -50,13 +48,14 @@ public class SceneUser {
         rbActive.setOnAction(e -> listOrders.getItems().setAll(user.getActiveOrders()));
         rbPrevious.setOnAction(e -> listOrders.getItems().setAll(user.getPreviousOrders()));
 
+        listRestaurants.getItems().setAll(user.getRestaurants());
+        listOrders.getItems().setAll(user.getActiveOrders());
         listRestaurants.setOnMouseClicked(event -> {
             RestaurantInfo selectedRestaurant = listRestaurants.getSelectionModel().getSelectedItem();
             if (selectedRestaurant != null) {
                 showRestaurant(user, selectedRestaurant, primaryStage);
             }
         });
-
         listOrders.setOnMouseClicked(event -> {
             Order selectedOrder = listOrders.getSelectionModel().getSelectedItem();
             if (selectedOrder != null)
@@ -66,13 +65,9 @@ public class SceneUser {
         HBox hBoxTitle = new HBox(20, lblTitle, lblID);
         hBoxTitle.setAlignment(Pos.CENTER);
         HBox hBoxRB = new HBox(30, rbActive, rbPrevious);
-        VBox vBoxLeft = new VBox(20);
-        vBoxLeft.getChildren().addAll(lblRestaurants, listRestaurants, btnRefresh);
-        VBox vBoxRight = new VBox(20);
-        vBoxRight.getChildren().addAll(lblOrders, listOrders, hBoxRB);
-
-        HBox hBoxMain = new HBox(40);
-        hBoxMain.getChildren().addAll(vBoxLeft, vBoxRight);
+        VBox vBoxLeft = new VBox(20, lblRestaurants, listRestaurants, btnRefresh);
+        VBox vBoxRight = new VBox(20, lblOrders, listOrders, hBoxRB);
+        HBox hBoxMain = new HBox(40, vBoxLeft, vBoxRight);
         hBoxMain.setAlignment(Pos.CENTER);
 
         root.getChildren().addAll(hBoxTitle, hBoxMain);
@@ -91,6 +86,7 @@ public class SceneUser {
 
         Label lblTitle = new Label("Resotran: " + restaurant.getRestaurantName() + " (ID: " + restaurant.getRestaurantID() + ")");
         ListView<String> listMenu = new ListView<>();
+        ListView<OrderItem> listOrder = new ListView<>();
         listMenu.getItems().setAll(restaurant.getMenu());
         Spinner<Integer> spinnerQuantity = new Spinner<>(1, 10, 1);
 
@@ -101,25 +97,34 @@ public class SceneUser {
         Button btnReturn = new Button("", backArrow);
         btnReturn.setOnAction(actionEvent -> show(primaryStage, user));
 
+        Button btnAddToOrder = new Button("Dodaj u narudžbu");
+        btnAddToOrder.setOnAction(event -> {
+            if (listMenu.getSelectionModel().getSelectedItem() != null) {
+                OrderItem orderItem = new OrderItem(listMenu.getSelectionModel().getSelectedItem(), spinnerQuantity.getValue());
+                listOrder.getItems().add(orderItem);
+                currentOrder.add(orderItem);
+                spinnerQuantity.getValueFactory().setValue(1);
+            }
+        });
+
+        Button btnRemoveFromOrder = new Button("Ukloni");
+        btnRemoveFromOrder.setOnAction(event -> {
+            if (listOrder.getSelectionModel().getSelectedItem() != null) {
+                currentOrder.remove(listOrder.getSelectionModel().getSelectedItem());
+                listOrder.getItems().remove(listOrder.getSelectionModel().getSelectedItem());
+            }
+        });
+
         Button btnOrder = new Button("Naruči");
         btnOrder.setOnAction(event -> {
             user.sendNewOrder(new Order(user.getOrderIDCounter(), user.getUserID(), restaurant.getRestaurantID(), currentOrder));
             show(primaryStage, user);
         });
 
-        Button btnAddToOrder = new Button("Dodaj u narudzbu");
-        btnAddToOrder.setOnAction(event -> {
-            currentOrder.add(new OrderItem(listMenu.getSelectionModel().getSelectedItem(), spinnerQuantity.getValue()));
-            spinnerQuantity.getValueFactory().setValue(1);
-        });
-
-        VBox vBoxRight = new VBox(20);
-        vBoxRight.getChildren().addAll(spinnerQuantity, btnAddToOrder, btnOrder);
-
-        HBox hBoxMain = new HBox(40);
-        hBoxMain.getChildren().addAll(listMenu, vBoxRight);
+        HBox hBoxBtn = new HBox(40, btnAddToOrder, btnRemoveFromOrder);
+        VBox vBoxRight = new VBox(20, spinnerQuantity, hBoxBtn, listOrder, btnOrder);
+        HBox hBoxMain = new HBox(40, listMenu, vBoxRight);
         hBoxMain.setAlignment(Pos.CENTER);
-
         VBox vBoxMain = new VBox(40, lblTitle, hBoxMain);
         vBoxMain.setAlignment(Pos.CENTER);
         root.getChildren().addAll(btnReturn, vBoxMain);
@@ -156,15 +161,16 @@ public class SceneUser {
             show(primaryStage, user);
         });
         btnCancel.setOnAction(event -> {
-            user.cancelOrder(order);
-            SceneStartUp.showAlert("Narudžba je otkazana!");
-            show(primaryStage, user);
+            if (order.getState() != OrderState.DELIVERED && order.getState() != OrderState.CANCELED && order.getState() != OrderState.FAILED) {
+                user.cancelOrder(order);
+                // SceneStartUp.showAlert("Narudžba je otkazana!");
+                show(primaryStage, user);
+            }
         });
 
         VBox vBoxLeft = new VBox(20, lblOrderID, lblRestaurant, lblCourierID, lblState, btnRepeat, btnCancel);
         HBox hBoxMain = new HBox(40, vBoxLeft, listOrderItems);
         hBoxMain.setAlignment(Pos.CENTER);
-
         root.getChildren().addAll(btnReturn, hBoxMain);
         root.setStyle("-fx-font: 16 'Comic Sans MS';");
 
@@ -180,8 +186,11 @@ public class SceneUser {
         Platform.runLater(() -> listRestaurants.getItems().setAll(restaurants));
     }
 
-    public static void updateOrders(ArrayList<Order> orders) {
-        Platform.runLater(() -> listOrders.getItems().setAll(orders));
+    public static void updateOrders(User user) {
+        if (rbActive.isSelected())
+            Platform.runLater(() -> listOrders.getItems().setAll(user.getActiveOrders()));
+        else
+            Platform.runLater(() -> listOrders.getItems().setAll(user.getPreviousOrders()));
     }
 
     public static void updateOrder(Order order) {

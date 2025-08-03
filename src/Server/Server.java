@@ -2,6 +2,7 @@ package Server;
 
 import Common.Order;
 import Common.RestaurantInfo;
+import Messages.LogOutMessage;
 import Messages.MessageType;
 import Messages.OrderStateMessage;
 import com.google.gson.Gson;
@@ -28,8 +29,9 @@ public class Server {
     private Set<ClientHandler> couriers = Collections.synchronizedSet(new HashSet<>());
     private final BlockingQueue<Order> pendingOrders = new LinkedBlockingQueue<>();
     private final BlockingQueue<ClientHandler> availableCouriers = new LinkedBlockingQueue<>();
+    private final Map<ClientHandler, Order> courierToOrder = Collections.synchronizedMap(new HashMap<>());
     private int counterID = 1;
-    private Gson gson = new Gson();
+    private final Gson gson = new Gson();
 
     public Server(int port) {
         this.port = port;
@@ -61,8 +63,31 @@ public class Server {
         users.forEach(user -> user.sendMessage(jsonMsg));
     }
 
-    public Set<ClientHandler> getUsers() {
-        return users;
+    public void broadcastUserDisconnected(LogOutMessage logoutMsg) {
+        if (!logoutMsg.getOrders().isEmpty()) { // ako je klijent poslao narudzbe
+            Set<Integer> restaurantIDs = new HashSet<>(); // restorani kojima je vec poslano
+            logoutMsg.getOrders().forEach(order -> {
+                pendingOrders.remove(order);
+                if (order.getCourierID() != 0) {
+                    ClientHandler courier = getCourier(order.getCourierID());
+                    courier.sendMessage(gson.toJson(logoutMsg));
+                    this.addCourierToQueue(courier);
+                } else if (!restaurantIDs.contains(order.getRestaurantID())) {
+                    getRestaurant(order.getRestaurantID()).sendMessage(gson.toJson(logoutMsg));
+                    restaurantIDs.add(order.getRestaurantID());
+                }
+            });
+        } else { // u slucaju prekida kada nema info o narudzbama
+            pendingOrders.removeIf(order -> order.getUserID() == logoutMsg.getClientID());
+            restaurants.forEach(r -> r.sendMessage(gson.toJson(logoutMsg)));
+            for (ClientHandler courier : couriers) {
+                Order order = courierToOrder.get(courier);
+                if (order != null && order.getUserID() == logoutMsg.getClientID()) {
+                    courier.sendMessage(gson.toJson(new LogOutMessage(logoutMsg.getType(), logoutMsg.getClientType(), logoutMsg.getClientID(), Set.of(order))));
+                    this.addCourierToQueue(courier);
+                }
+            }
+        }
     }
 
     public ClientHandler getUser(int userID) {
@@ -96,8 +121,8 @@ public class Server {
         this.restaurants.remove(restaurants.stream().filter(r -> r.getClientID() == restaurantID).findFirst().orElse(null));
     }
 
-    public Set<ClientHandler> getCouriers() {
-        return couriers;
+    public ClientHandler getCourier(int courierID) {
+        return couriers.stream().filter(c -> c.getClientID() == courierID).findFirst().orElse(null);
     }
 
     public void addCourier(ClientHandler courier) {
@@ -105,7 +130,8 @@ public class Server {
         addCourierToQueue(courier);
     }
 
-    private void addCourierToQueue(ClientHandler courier) {
+    public void addCourierToQueue(ClientHandler courier) {
+        courierToOrder.remove(courier);
         Order pendingOrder = pendingOrders.poll();
         if (pendingOrder != null)
             assignCourierToOrder(courier, pendingOrder);
@@ -114,12 +140,13 @@ public class Server {
     }
 
     public void assignCourierToOrder(ClientHandler courier, Order order) {
+        courierToOrder.put(courier, order);
         courier.sendMessage(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
     }
 
     public void removeCourier(ClientHandler courier) {
-        this.couriers.remove(courier);
-        this.availableCouriers.remove(courier);
+        couriers.remove(courier);
+        availableCouriers.remove(courier);
     }
 
     public ClientHandler getAvailableCourier() {
@@ -128,5 +155,13 @@ public class Server {
 
     public void addPendingOrder(Order order) {
         this.pendingOrders.add(order);
+    }
+
+    public void removePendingOrder(Order order) {
+        this.pendingOrders.remove(order);
+    }
+
+    public Order getCourierToOrder(int ID) {
+        return courierToOrder.get(this.getCourier(ID));
     }
 }

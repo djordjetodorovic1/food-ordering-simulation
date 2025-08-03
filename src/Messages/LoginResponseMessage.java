@@ -1,7 +1,7 @@
 package Messages;
 
 public class LoginResponseMessage extends Message {
-    private int clientID;
+    private final int clientID;
 
     public LoginResponseMessage(MessageType type, int clientID) {
         super(type);
@@ -14,6 +14,6 @@ public class LoginResponseMessage extends Message {
 
     @Override
     public String toString() {
-        return " clientID: " + clientID;
+        return super.toString() + " clientID: " + clientID;
     }
 }

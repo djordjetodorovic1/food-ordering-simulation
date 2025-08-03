@@ -17,22 +17,23 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class Restaurant {
-    private String name;
+    private final String name;
     private int restaurantID;
     private ArrayList<String> menu = new ArrayList<>();
     private BlockingQueue<Order> pendingOrders = new LinkedBlockingQueue<>();
     private Set<Order> ordersInProgress = Collections.synchronizedSet(new HashSet<>());
-    private int executionTime;
+    private final int executionTime;
     private ExecutorService restaurantWorkersThreadPool;
+    private Map<Order, Thread> orderThreads = Collections.synchronizedMap(new HashMap<>());
 
-    private String hostname;
-    private int port;
-    private Stage primaryStage;
-    private Gson gson = new Gson();
+    private final String hostname;
+    private final int port;
+    private final Stage primaryStage;
+    private final Gson gson = new Gson();
 
-    private Socket socket;
-    private BufferedReader fromServer;
-    private PrintWriter toServer;
+    private final Socket socket;
+    private final BufferedReader fromServer;
+    private final PrintWriter toServer;
 
     public Restaurant(String name, File file, String hostname, int port, Stage primaryStage) throws IOException {
         this.name = name;
@@ -46,6 +47,7 @@ public class Restaurant {
             while (sc.hasNext())
                 this.menu.addAll(Arrays.asList(sc.nextLine().split("\\s*,\\s*")));
         } catch (FileNotFoundException e) {
+            System.err.println("File not found...");
             e.printStackTrace();
         }
 
@@ -61,16 +63,16 @@ public class Restaurant {
             try {
                 String responseJson;
                 while ((responseJson = fromServer.readLine()) != null) {
-                    System.out.println(responseJson); // test
                     Message msg = gson.fromJson(responseJson, Message.class);
                     if (msg.getType() == MessageType.LOGIN_RESPONSE)
                         handleLoginResponse(responseJson);
-                    if (msg.getType() == MessageType.NEW_ORDER)
+                    else if (msg.getType() == MessageType.NEW_ORDER)
                         handleNewOrder(responseJson);
-                    if (msg.getType() == MessageType.LOGOUT)
+                    else if (msg.getType() == MessageType.CANCELED_ORDER) {
+                        System.out.println(gson.fromJson(responseJson, CancelOrderMessage.class));
+                        handleCanceledOrder(gson.fromJson(responseJson, CancelOrderMessage.class).getOrder());
+                    } else if (msg.getType() == MessageType.LOGOUT)
                         handleLostUser(responseJson);
-                    if (msg.getType() == MessageType.CANCELED_ORDER)
-                        handleCanceledOrder(responseJson);
                 }
             } catch (IOException e) {
                 if (socket.isClosed())
@@ -93,6 +95,7 @@ public class Restaurant {
 
     // postavlja ID koji dodjeljuje server
     private void handleLoginResponse(String responseJson) {
+        System.out.println(gson.fromJson(responseJson, LoginResponseMessage.class));
         int clientID = gson.fromJson(responseJson, LoginResponseMessage.class).getClientID();
         this.setRestaurantID(clientID);
         SceneRestaurant.updateID(clientID);
@@ -100,6 +103,7 @@ public class Restaurant {
 
     // Dodaje novu narudzbu
     private void handleNewOrder(String responseJson) {
+        System.out.println(gson.fromJson(responseJson, NewOrderMessage.class));
         Order newOrder = gson.fromJson(responseJson, NewOrderMessage.class).getOrder();
         newOrder.setPreparationTime(executionTime * newOrder.getOrderItems().stream()
                 .mapToInt(OrderItem::getQuantity).sum());
@@ -112,6 +116,10 @@ public class Restaurant {
     // simulira pripremu narudzbe - azurira GUI i obavjestava user-a o stanju narudzbe
     private void prepareOrder(Order order) {
         Runnable assignment = () -> {
+            if (order.getState() == OrderState.CANCELED)
+                return;
+            orderThreads.put(order, Thread.currentThread());
+
             pendingOrders.remove(order);
             ordersInProgress.add(order);
             order.setState(OrderState.PREPARING);
@@ -119,28 +127,50 @@ public class Restaurant {
             toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
 
             try {
-                Thread.sleep(order.getPreparationTime());
+                Thread.sleep(order.getPreparationTime()); // simulira pripremu narudzbe
+                if (order.getState() != OrderState.CANCELED) {
+                    order.setState(OrderState.WAITING_FOR_DELIVERY);
+                    toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
+                }
             } catch (InterruptedException e) {
                 System.err.println("Restaurant worker stopped...");
+            } finally {
+                orderThreads.remove(order);
+                ordersInProgress.remove(order);
+                SceneRestaurant.updateOrders(this);
             }
-
-            ordersInProgress.remove(order);
-            order.setState(OrderState.WAITING_FOR_DELIVERY);
-            SceneRestaurant.updateOrders(this);
-            toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
         };
-
         restaurantWorkersThreadPool.submit(assignment);
     }
 
-    private void handleLostUser(String responseJson) {
-        LogOutMessage msg = gson.fromJson(responseJson, LogOutMessage.class);
-        int userID = msg.getClientID();
-        // dodati Future kad uradim user-a
+    // prekida se priprema otkazane narudzbe, ako je na cekanju uklanja se iz reda cekanja
+    private void handleCanceledOrder(Order canceledOrder) {
+        Order canceledPendingOrder = pendingOrders.stream().filter(po -> po.equals(canceledOrder)).findFirst().orElse(null);
+        if (canceledPendingOrder != null) {
+            pendingOrders.remove(canceledPendingOrder);
+            canceledPendingOrder.setState(OrderState.CANCELED);
+        }
+        Thread t = orderThreads.get(canceledOrder);
+        if (t != null)
+            t.interrupt();
+        SceneRestaurant.updateOrders(this);
     }
 
-    private void handleCanceledOrder(String responseJson) {
-        // dodati i za otkazivanje narudzbe
+    // prekida pripremu svih narudzbi User-a
+    private void handleLostUser(String responseJson) {
+        LogOutMessage msg = gson.fromJson(responseJson, LogOutMessage.class);
+        System.out.println(msg);
+        if (!msg.getOrders().isEmpty())
+            for (Order order : msg.getOrders())
+                handleCanceledOrder(order);
+        else {
+            List<Order> canceledPendingOrder = pendingOrders.stream().filter(po -> po.getUserID() == msg.getClientID()).toList();
+            for (Order order : canceledPendingOrder)
+                handleCanceledOrder(order);
+            List<Order> canceledActiveOrder = ordersInProgress.stream().filter(o -> o.getUserID() == msg.getClientID()).toList();
+            for (Order order : canceledActiveOrder)
+                handleCanceledOrder(order);
+        }
     }
 
     private void shutdown() {
@@ -169,10 +199,6 @@ public class Restaurant {
 
     private void setRestaurantID(int restaurantID) {
         this.restaurantID = restaurantID;
-    }
-
-    public ArrayList<String> getMenu() {
-        return menu;
     }
 
     public BlockingQueue<Order> getPendingOrders() {

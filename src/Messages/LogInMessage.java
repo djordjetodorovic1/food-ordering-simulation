@@ -3,8 +3,8 @@ package Messages;
 import Common.ClientType;
 
 public class LogInMessage extends Message {
-    private ClientType clientType;
-    private String userName;
+    private final ClientType clientType;
+    private final String userName;
 
     public LogInMessage(MessageType type, ClientType clientType, String userName) {
         super(type);
@@ -22,6 +22,6 @@ public class LogInMessage extends Message {
 
     @Override
     public String toString() {
-        return super.toString() + " ClientType: " + clientType + " UserName: " + userName;
+        return super.toString() + " clientType: " + clientType + " userName: " + userName;
     }
 }

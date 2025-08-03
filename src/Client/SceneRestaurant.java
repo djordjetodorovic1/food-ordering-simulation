@@ -26,7 +26,7 @@ public class SceneRestaurant {
 
         Label lblTitle = new Label("Restoran: " + restaurant.getName());
         lblID = new Label(" (ID: " + restaurant.getRestaurantID() + ")");
-        Label lblPending = new Label("Na cekanju...");
+        Label lblPending = new Label("Na čekanju...");
         Label lblExecution = new Label("U pripremi");
 
         listPendingOrders.getItems().setAll(restaurant.getPendingOrders());
@@ -44,12 +44,9 @@ public class SceneRestaurant {
 
         HBox hBoxTitle = new HBox(20, lblTitle, lblID);
         hBoxTitle.setAlignment(Pos.CENTER);
-        VBox vBoxLeft = new VBox(20);
-        vBoxLeft.getChildren().addAll(lblPending, listPendingOrders);
-        VBox vBoxRight = new VBox(20);
-        vBoxRight.getChildren().addAll(lblExecution, listExecutingOrders);
-        HBox hBoxMain = new HBox(40);
-        hBoxMain.getChildren().addAll(vBoxLeft, vBoxRight);
+        VBox vBoxLeft = new VBox(20, lblPending, listPendingOrders);
+        VBox vBoxRight = new VBox(20, lblExecution, listExecutingOrders);
+        HBox hBoxMain = new HBox(40, vBoxLeft, vBoxRight);
         hBoxMain.setAlignment(Pos.CENTER);
 
         root.getChildren().addAll(hBoxTitle, hBoxMain);
@@ -83,7 +80,6 @@ public class SceneRestaurant {
         VBox vBoxLeft = new VBox(20, lblOrderID, lblUserID, lblState, lblTime);
         HBox hBoxMain = new HBox(40, vBoxLeft, listOrderItems);
         hBoxMain.setAlignment(Pos.CENTER);
-
         root.getChildren().addAll(btnReturn, hBoxMain);
         root.setStyle("-fx-font: 16 'Comic Sans MS';");
 

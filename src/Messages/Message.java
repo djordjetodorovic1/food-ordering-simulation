@@ -1,7 +1,7 @@
 package Messages;
 
 public class Message {
-    private MessageType type;
+    private final MessageType type;
 
     public Message(MessageType type) {
         this.type = type;

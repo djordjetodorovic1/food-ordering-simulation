@@ -3,13 +3,13 @@ package Common;
 import java.util.ArrayList;
 
 public class Order {
-    private int orderID;
-    private int userID;
-    private int restaurantID;
+    private final int orderID;
+    private final int userID;
+    private final int restaurantID;
     private int courierID;
     private int preparationTime;
     private OrderState state;
-    private ArrayList<OrderItem> orderItems = new ArrayList<>();
+    private final ArrayList<OrderItem> orderItems;
 
     public Order(int orderID, int userID, int restaurantID, ArrayList<OrderItem> orderItems) {
         this.orderID = Integer.parseInt(userID + "" + orderID);
@@ -17,6 +17,21 @@ public class Order {
         this.restaurantID = restaurantID;
         this.orderItems = orderItems;
         this.state = OrderState.NEW;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null || getClass() != obj.getClass())
+            return false;
+        Order other = (Order) obj;
+        return this.orderID == other.orderID;
+    }
+
+    @Override
+    public int hashCode() {
+        return Integer.hashCode(orderID);
     }
 
     public int getOrderID() {

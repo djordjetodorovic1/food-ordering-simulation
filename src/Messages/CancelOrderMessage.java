@@ -2,10 +2,10 @@ package Messages;
 
 import Common.Order;
 
-public class NewOrderMessage extends Message {
+public class CancelOrderMessage extends Message {
     private final Order order;
 
-    public NewOrderMessage(MessageType type, Order order) {
+    public CancelOrderMessage(MessageType type, Order order) {
         super(type);
         this.order = order;
     }

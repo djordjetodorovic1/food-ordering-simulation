@@ -9,20 +9,23 @@ import javafx.stage.Stage;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.Set;
 
 public class Courier {
-    private String userName;
+    private final String userName;
     private int courierID;
-    private int executionTime;
+    private final int executionTime;
+    private Order order;
 
-    private String hostname;
-    private int port;
-    private Stage primaryStage;
-    private Gson gson = new Gson();
+    private final String hostname;
+    private final int port;
+    private final Stage primaryStage;
+    private final Gson gson = new Gson();
+    private Thread deliveryThread;
 
-    private Socket socket;
-    private BufferedReader fromServer;
-    private PrintWriter toServer;
+    private final Socket socket;
+    private final BufferedReader fromServer;
+    private final PrintWriter toServer;
 
     public Courier(String name, String hostname, int port, Stage primaryStage) throws IOException {
         this.userName = name;
@@ -43,16 +46,15 @@ public class Courier {
             try {
                 String responseJson;
                 while ((responseJson = fromServer.readLine()) != null) {
-                    System.out.println(responseJson); // test
                     Message msg = gson.fromJson(responseJson, Message.class);
                     if (msg.getType() == MessageType.LOGIN_RESPONSE)
                         handleLoginResponse(responseJson);
-                    if (msg.getType() == MessageType.ORDER_STATE)
+                    else if (msg.getType() == MessageType.ORDER_STATE)
                         handleNewOrder(responseJson);
-                    if (msg.getType() == MessageType.LOGOUT)
-                        handleLostUser(responseJson);
-                    if (msg.getType() == MessageType.CANCELED_ORDER)
+                    else if (msg.getType() == MessageType.CANCELED_ORDER)
                         handleCanceledOrder(responseJson);
+                    else if (msg.getType() == MessageType.LOGOUT)
+                        handleLostUser(responseJson);
                 }
             } catch (IOException e) {
                 if (socket.isClosed())
@@ -75,6 +77,7 @@ public class Courier {
 
     // postavlja ID koji dodjeljuje server
     private void handleLoginResponse(String responseJson) {
+        System.out.println(gson.fromJson(responseJson, LoginResponseMessage.class));
         int clientID = gson.fromJson(responseJson, LoginResponseMessage.class).getClientID();
         this.setCourierID(clientID);
         SceneCourier.updateID(clientID);
@@ -82,37 +85,51 @@ public class Courier {
 
     // simulira dostavu
     private void handleNewOrder(String responseJson) {
-        Order order = gson.fromJson(responseJson, OrderStateMessage.class).getOrder();
+        System.out.println(gson.fromJson(responseJson, OrderStateMessage.class));
+        order = gson.fromJson(responseJson, OrderStateMessage.class).getOrder();
         order.setCourierID(courierID);
         order.setState(OrderState.DELIVERING);
         SceneCourier.updateOrder(order);
-        // System.out.println(order);
         toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
 
-        try {
-            Thread.sleep(this.executionTime);
-        } catch (InterruptedException e) {
-            System.err.println("Delivering interrupted...");
-        }
-
-        order.setState(OrderState.DELIVERED);
-        SceneCourier.clearOrder();
-        toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
+        deliveryThread = new Thread(() -> {
+            try {
+                Thread.sleep(this.executionTime); // simulacija dostave
+                order.setState(OrderState.DELIVERED);
+                toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
+            } catch (InterruptedException | NullPointerException e) {
+                System.err.println("Delivering interrupted...");
+            } finally {
+                SceneCourier.clearOrder();
+                order = null;
+            }
+        });
+        deliveryThread.start();
     }
 
-    private void handleLostUser(String responseJson) {
-        LogOutMessage msg = gson.fromJson(responseJson, LogOutMessage.class);
-        int userID = msg.getClientID();
-        // dodati
-    }
-
+    // prekida dostavu u slucaju otkazivanja
     private void handleCanceledOrder(String responseJson) {
-        // dodati i za otkazivanje narudzbe
+        System.out.println(gson.fromJson(responseJson, CancelOrderMessage.class));
+        if (order != null && gson.fromJson(responseJson, CancelOrderMessage.class).getOrder().equals(order))
+            if (deliveryThread != null && deliveryThread.isAlive())
+                deliveryThread.interrupt();
+    }
+
+    // prekida dostavu u slucaju iskljucivanja User-a
+    private void handleLostUser(String responseJson) {
+        System.out.println(gson.fromJson(responseJson, LogOutMessage.class));
+        if (order != null && gson.fromJson(responseJson, LogOutMessage.class).getOrders().contains(order))
+            if (deliveryThread != null && deliveryThread.isAlive())
+                deliveryThread.interrupt();
     }
 
     private void shutdown() {
         try {
-            toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.COURIER, this.courierID)));
+            if (order != null)
+                toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.COURIER, this.courierID, Set.of(order))));
+            else
+                toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.COURIER, this.courierID)));
+
             if (toServer != null)
                 toServer.close();
             if (fromServer != null)

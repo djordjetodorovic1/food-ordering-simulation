@@ -1,6 +1,7 @@
 package Client;
 
 import Common.ClientType;
+import Common.OrderState;
 import Common.RestaurantInfo;
 import Messages.*;
 import Common.Order;
@@ -14,24 +15,27 @@ import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class User {
-    private String userName;
+    private final String userName;
     private int userID;
-    private ArrayList<Order> activeOrders = new ArrayList<>();
+    private BlockingQueue<Order> activeOrders = new LinkedBlockingQueue<>();
     private ArrayList<Order> previousOrders = new ArrayList<>();
     private Set<RestaurantInfo> restaurants = new HashSet<>();
     private int orderIDCounter = 0;
 
-    private String hostname;
-    private int port;
-    private Stage primaryStage;
-    private Gson gson = new Gson();
+    private final String hostname;
+    private final int port;
+    private final Stage primaryStage;
+    private final Gson gson = new Gson();
 
-    private Socket socket;
-    private BufferedReader fromServer;
-    private PrintWriter toServer;
+    private final Socket socket;
+    private final BufferedReader fromServer;
+    private final PrintWriter toServer;
 
     public User(String userName, String hostname, int port, Stage primaryStage) throws IOException {
         this.userName = userName;
@@ -51,12 +55,15 @@ public class User {
             try {
                 String responseJson;
                 while ((responseJson = fromServer.readLine()) != null) {
-                    System.out.println(responseJson); // test
                     Message msg = gson.fromJson(responseJson, Message.class);
                     if (msg.getType() == MessageType.LOGIN_RESPONSE)
                         handleLoginRespone(responseJson);
-                    if (msg.getType() == MessageType.ORDER_STATE)
+                    else if (msg.getType() == MessageType.ORDER_STATE)
                         handleOrderState(responseJson);
+                    else if (msg.getType() == MessageType.RESTAURANT_INFO_REFRESH)
+                        handleRestaurantRefresh(responseJson);
+                    else if (msg.getType() == MessageType.LOGOUT)
+                        handleLostOrders(responseJson);
                 }
             } catch (IOException e) {
                 if (socket.isClosed())
@@ -68,7 +75,6 @@ public class User {
                 }
             }
         });
-
         receiverThread.setDaemon(true); // automatski se gasi kad se GUI zatvori
         receiverThread.start();
 
@@ -81,7 +87,8 @@ public class User {
     // postavlja ID i restorane
     private void handleLoginRespone(String responseJson) {
         LoginUserResponseMessage idMsg = gson.fromJson(responseJson, LoginUserResponseMessage.class);
-        this.setUserID(idMsg.getClientID());
+        System.out.println(idMsg);
+        this.userID = idMsg.getClientID();
         this.setRestaurants(idMsg.getRestaurants());
         SceneUser.updateID(idMsg.getClientID());
         SceneUser.updateRestaurants(idMsg.getRestaurants());
@@ -89,30 +96,70 @@ public class User {
 
     // azurira stanje narudzbe
     private void handleOrderState(String responseJson) {
+        System.out.println(gson.fromJson(responseJson, OrderStateMessage.class));
         Order orderMsg = gson.fromJson(responseJson, OrderStateMessage.class).getOrder();
         Order order = getActiveOrder(orderMsg.getOrderID());
-        order.setState(orderMsg.getState());
-        order.setCourierID(orderMsg.getCourierID());
-        // System.out.println(order);
-        SceneUser.updateOrders(activeOrders);
-        SceneUser.updateOrder(order);
+        if (order != null) {
+            order.setState(orderMsg.getState());
+            if (orderMsg.getState() == OrderState.DELIVERING)
+                order.setCourierID(orderMsg.getCourierID());
+            if (orderMsg.getState() == OrderState.DELIVERED)
+                this.finishedOrder(order);
+
+            SceneUser.updateOrders(this);
+            SceneUser.updateOrder(order);
+        }
+    }
+
+    private void handleRestaurantRefresh(String responseJson) {
+        this.restaurants = gson.fromJson(responseJson, RestaurantInfoRefreshMessage.class).getRestaurants();
+        SceneUser.updateRestaurants(restaurants);
+    }
+
+    // azurira narudzbe u slucaju prekida veze sa kurirom ili restoranom
+    private void handleLostOrders(String responseJson) {
+        LogOutMessage msg = gson.fromJson(responseJson, LogOutMessage.class);
+        System.out.println(msg);
+        if (msg.getClientType() == ClientType.COURIER) {
+            Order failedOrder = this.getActiveOrder(msg.getOrders().iterator().next().getOrderID());
+            if (failedOrder != null) {
+                failedOrder.setState(OrderState.FAILED);
+                finishedOrder(failedOrder);
+            }
+        } else if (msg.getClientType() == ClientType.RESTAURANT) {
+            restaurants.remove(restaurants.stream().filter(r -> r.getRestaurantID() == msg.getClientID()).findFirst().orElse(null));
+            SceneUser.updateRestaurants(restaurants);
+            for (Order order : activeOrders) {
+                if (order.getRestaurantID() == msg.getClientID() && order.getCourierID() == 0 && order.getState() != OrderState.WAITING_FOR_DELIVERY) {
+                    order.setState(OrderState.FAILED);
+                    finishedOrder(order);
+                }
+            }
+        }
+        SceneUser.updateOrders(this);
     }
 
     // salje serveru novu narudzbu
     public void sendNewOrder(Order order) {
         addActiveOrder(order);
-        String json = gson.toJson(new NewOrderMessage(MessageType.NEW_ORDER, order));
-        toServer.println(json);
-        // System.out.println(json);
+        toServer.println(gson.toJson(new NewOrderMessage(MessageType.NEW_ORDER, order)));
     }
 
+    // otkazivanje narudzbe
     public void cancelOrder(Order order) {
-        //
+        order.setState(OrderState.CANCELED);
+        finishedOrder(order);
+        toServer.println(gson.toJson(new CancelOrderMessage(MessageType.CANCELED_ORDER, order)));
+    }
+
+    // salje serveru zahtjev o novom spisku restorana
+    public void refreshRestaurants() {
+        toServer.println(gson.toJson(new Message(MessageType.RESTAURANT_INFO_REFRESH)));
     }
 
     private void shutdown() {
         try {
-            toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.USER, this.userID)));
+            toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.USER, this.userID, new HashSet<>(activeOrders))));
             if (toServer != null)
                 toServer.close();
             if (fromServer != null)
@@ -129,16 +176,8 @@ public class User {
         return userName;
     }
 
-    public void setUserName(String userName) {
-        this.userName = userName;
-    }
-
     public int getUserID() {
         return userID;
-    }
-
-    public void setUserID(int userID) {
-        this.userID = userID;
     }
 
     public int getOrderIDCounter() {
@@ -150,16 +189,11 @@ public class User {
         return restaurants;
     }
 
-    public Set<RestaurantInfo> refreshRestaurants() {
-        // trenutno rjesenje - treba ponovo da zatrazi listu restorana od servera
-        return restaurants;
-    }
-
-    public void setRestaurants(Set<RestaurantInfo> restaurants) {
+    private void setRestaurants(Set<RestaurantInfo> restaurants) {
         this.restaurants = restaurants;
     }
 
-    public ArrayList<Order> getActiveOrders() {
+    public BlockingQueue<Order> getActiveOrders() {
         return activeOrders;
     }
 
@@ -175,11 +209,7 @@ public class User {
         return previousOrders;
     }
 
-    public void addPreviousOrders(Order order) {
-        this.previousOrders.add(order);
-    }
-
-    public void finishedOrder(Order order) {
+    private void finishedOrder(Order order) {
         this.previousOrders.add(order);
         this.activeOrders.remove(order);
     }

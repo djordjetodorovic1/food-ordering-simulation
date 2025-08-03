@@ -21,7 +21,7 @@ public class SceneStartUp {
         VBox root = new VBox(40);
         root.setPadding(new Insets(20, 20, 20, 20));
 
-        Label lblTitle = new Label("Neki kreativan naziv");
+        Label lblTitle = new Label("Za tren oka");
         Label lblUserName = new Label("Unesite korisničko ime");
         Label lblClientType = new Label("Izaberite tip naloga");
         lblTitle.setStyle("-fx-text-fill: #4d6a88; -fx-font: 24 'Comic Sans MS';");
@@ -76,13 +76,9 @@ public class SceneStartUp {
             }
         });
 
-        VBox vBoxlbl = new VBox(40);
-        vBoxlbl.getChildren().addAll(lblUserName, lblClientType);
-        VBox vBoxfields = new VBox(20);
-        vBoxfields.getChildren().addAll(tfUserName, cbClientType);
-
-        HBox hBoxLogIn = new HBox(40);
-        hBoxLogIn.getChildren().addAll(vBoxlbl, vBoxfields);
+        VBox vBoxlbl = new VBox(40, lblUserName, lblClientType);
+        VBox vBoxfields = new VBox(20, tfUserName, cbClientType);
+        HBox hBoxLogIn = new HBox(40, vBoxlbl, vBoxfields);
         hBoxLogIn.setAlignment(Pos.CENTER);
         hBoxLogIn.setPadding(new Insets(10, 0, 10, 0));
 

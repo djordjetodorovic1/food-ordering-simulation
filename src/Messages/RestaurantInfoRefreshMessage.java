@@ -4,11 +4,11 @@ import Common.RestaurantInfo;
 
 import java.util.Set;
 
-public class LoginUserResponseMessage extends LoginResponseMessage {
+public class RestaurantInfoRefreshMessage extends Message {
     private final Set<RestaurantInfo> restaurants;
 
-    public LoginUserResponseMessage(MessageType type, int clientID, Set<RestaurantInfo> restaurants) {
-        super(type, clientID);
+    public RestaurantInfoRefreshMessage(MessageType type, Set<RestaurantInfo> restaurants) {
+        super(type);
         this.restaurants = restaurants;
     }
 

@@ -1,6 +1,7 @@
 package Server;
 
 import Common.ClientType;
+import Common.Order;
 import Common.OrderState;
 import Messages.*;
 import com.google.gson.Gson;
@@ -10,17 +11,18 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.util.Set;
 
 public class ClientHandler extends Thread {
     private final Server server;
     private final Socket client;
-    private BufferedReader fromClient;
-    private PrintWriter toClient;
+    private final BufferedReader fromClient;
+    private final PrintWriter toClient;
 
-    private ClientType clientType;
     private String userName;
-    private int clientID;
-    private Gson gson = new Gson();
+    private ClientType clientType;
+    private final int clientID;
+    private final Gson gson = new Gson();
 
     ClientHandler(Server server, Socket client, int clientID) throws IOException {
         this.server = server;
@@ -37,20 +39,24 @@ public class ClientHandler extends Thread {
         try {
             String jsonMsg;
             while ((jsonMsg = fromClient.readLine()) != null) {
-                System.out.println(jsonMsg);
                 Message msg = gson.fromJson(jsonMsg, Message.class);
                 if (msg.getType() == MessageType.LOGIN)
                     handleLogin(jsonMsg);
-                if (msg.getType() == MessageType.NEW_ORDER)
+                else if (msg.getType() == MessageType.NEW_ORDER)
                     handleNewOrder(jsonMsg);
-                if (msg.getType() == MessageType.ORDER_STATE)
+                else if (msg.getType() == MessageType.ORDER_STATE)
                     handleOrderState(jsonMsg);
-                if (msg.getType() == MessageType.LOGOUT)
-                    handleLogout(jsonMsg);
+                else if (msg.getType() == MessageType.RESTAURANT_INFO_REFRESH)
+                    handleRestaurantInfoRefresh();
+                else if (msg.getType() == MessageType.CANCELED_ORDER)
+                    handleCancelOrder(jsonMsg);
+                else if (msg.getType() == MessageType.LOGOUT)
+                    handleLogout(gson.fromJson(jsonMsg, LogOutMessage.class));
             }
         } catch (IOException e) {
+            this.handleLogout(new LogOutMessage(MessageType.LOGOUT, this.clientType, this.clientID));
             System.err.println("Error in Thread: " + e.getMessage());
-            e.printStackTrace();
+            // e.printStackTrace();
         } finally {
             try {
                 if (fromClient != null) fromClient.close();
@@ -66,6 +72,7 @@ public class ClientHandler extends Thread {
     // vraca korisnicima ID (user-u vraca i restorane)
     private void handleLogin(String jsonMsg) throws IOException {
         LogInMessage loginMsg = gson.fromJson(jsonMsg, LogInMessage.class);
+        System.out.println(loginMsg);
         this.userName = loginMsg.getUserName();
         this.clientType = loginMsg.getClientType();
 
@@ -85,42 +92,87 @@ public class ClientHandler extends Thread {
     // prosljedjuje narudzbu restoranu
     private void handleNewOrder(String jsonMsg) {
         NewOrderMessage newOrderMsg = gson.fromJson(jsonMsg, NewOrderMessage.class);
-        // System.out.println(newOrderMsg);
+        System.out.println(newOrderMsg);
         ClientHandler restaurant = server.getRestaurant(newOrderMsg.getOrder().getRestaurantID());
-        restaurant.sendMessage(jsonMsg);
+        if (restaurant != null)
+            restaurant.sendMessage(jsonMsg);
+        else
+            this.sendMessage(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.RESTAURANT, newOrderMsg.getOrder().getRestaurantID())));
     }
 
     // prosljedjuje stanje narudzbe klijentu
-    // trazi dostupnog dostavljaca ako je na cekanju
+    // trazi dostupnog dostavljaca ako je na cekanju ili ga vraca u red za cekanje ako je zavrsio dostavu
     private void handleOrderState(String jsonMsg) {
-        OrderStateMessage orderStateMsg = gson.fromJson(jsonMsg, OrderStateMessage.class);
-        ClientHandler user = server.getUser(orderStateMsg.getOrder().getUserID());
-        user.sendMessage(jsonMsg);
-
-        if (orderStateMsg.getOrder().getState() == OrderState.WAITING_FOR_DELIVERY) {
-            ClientHandler courier = server.getAvailableCourier();
-            if (courier != null)
-                server.assignCourierToOrder(courier, orderStateMsg.getOrder());
-            else
-                server.addPendingOrder(orderStateMsg.getOrder());
+        System.out.println(gson.fromJson(jsonMsg, OrderStateMessage.class));
+        Order order = gson.fromJson(jsonMsg, OrderStateMessage.class).getOrder();
+        ClientHandler user = server.getUser(order.getUserID());
+        if (user == null) {
+            this.sendMessage(gson.toJson(new CancelOrderMessage(MessageType.CANCELED_ORDER, order)));
+            if (order.getState() == OrderState.DELIVERING)
+                server.addCourierToQueue(this);
+        } else {
+            user.sendMessage(jsonMsg);
+            if (order.getState() == OrderState.WAITING_FOR_DELIVERY) {
+                ClientHandler courier = server.getAvailableCourier();
+                if (courier != null)
+                    server.assignCourierToOrder(courier, order);
+                else
+                    server.addPendingOrder(order);
+            }
         }
+        if (order.getState() == OrderState.DELIVERED)
+            server.addCourierToQueue(this);
+    }
+
+    // vraca nove inforamcije o restoranima
+    private void handleRestaurantInfoRefresh() {
+        this.sendMessage(gson.toJson(new RestaurantInfoRefreshMessage(MessageType.RESTAURANT_INFO_REFRESH, server.getRestaurantInfos())));
+    }
+
+    // prosljedjuje otkazanu narudzbu odgovarajucem restoranu/dostavljacu
+    private void handleCancelOrder(String jsonMsg) {
+        System.out.println(gson.fromJson(jsonMsg, CancelOrderMessage.class));
+        Order canceledOrder = gson.fromJson(jsonMsg, CancelOrderMessage.class).getOrder();
+        ClientHandler restaurant = server.getRestaurant(canceledOrder.getRestaurantID());
+        if (restaurant != null)
+            restaurant.sendMessage(jsonMsg);
+        if (canceledOrder.getCourierID() != 0) {
+            ClientHandler courier = server.getCourier(canceledOrder.getCourierID());
+            if (courier != null) {
+                courier.sendMessage(jsonMsg);
+                server.addCourierToQueue(courier);
+            }
+        }
+        server.removePendingOrder(canceledOrder);
     }
 
     // uklanja klijenta
-    private void handleLogout(String jsonMsg) {
-        LogOutMessage logoutMsg = gson.fromJson(jsonMsg, LogOutMessage.class);
+    private void handleLogout(LogOutMessage logoutMsg) {
+        System.out.println(logoutMsg);
         switch (logoutMsg.getClientType()) {
             case RESTAURANT:
                 server.removeRestaurant(logoutMsg.getClientID());
-                server.broadcastToUsers(jsonMsg);
+                server.broadcastToUsers(gson.toJson(logoutMsg));
                 break;
             case USER:
                 server.removeUser(this);
-                // obavjesti ostale koji pripremaju narudzbe
+                server.broadcastUserDisconnected(logoutMsg);
                 break;
             case COURIER:
+                ClientHandler user;
+                if (!logoutMsg.getOrders().isEmpty()) {
+                    user = server.getUser(logoutMsg.getOrders().iterator().next().getUserID());
+                    if (user != null)
+                        user.sendMessage(gson.toJson(logoutMsg));
+                } else {
+                    Order order = server.getCourierToOrder(logoutMsg.getClientID());
+                    if (order != null) {
+                        user = server.getUser(order.getUserID());
+                        if (user != null)
+                            user.sendMessage(gson.toJson(new LogOutMessage(logoutMsg.getType(), logoutMsg.getClientType(), logoutMsg.getClientID(), Set.of(order))));
+                    }
+                }
                 server.removeCourier(this);
-                // obavjesti user-a ako ima narudzba
                 break;
         }
     }
@@ -128,10 +180,6 @@ public class ClientHandler extends Thread {
     // salje poruku klijentu
     public void sendMessage(String jsonMsg) {
         toClient.println(jsonMsg);
-    }
-
-    public ClientType getClientType() {
-        return clientType;
     }
 
     public String getUserName() {

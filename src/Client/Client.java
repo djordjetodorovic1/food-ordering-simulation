@@ -3,6 +3,7 @@ package Client;
 import Common.ClientType;
 import Server.Server;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.stage.Stage;
 
 import java.io.File;
@@ -40,7 +41,9 @@ public class Client extends Application {
                     break;
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Server not responding...");
+            SceneStartUp.showAlert("Server not responding...");
+            Platform.exit();
         }
     }
 }

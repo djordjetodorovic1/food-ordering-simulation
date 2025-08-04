@@ -39,6 +39,7 @@ public class SceneCourier {
 
     public static void updateOrder(Order order) {
         Platform.runLater(() -> {
+            taOrder.clear();
             taOrder.appendText("OrderID: " + order.getOrderID());
             taOrder.appendText("\nUserID: " + order.getUserID());
             taOrder.appendText("\nRestaurantID: " + order.getRestaurantID());

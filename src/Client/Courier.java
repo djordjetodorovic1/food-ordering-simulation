@@ -10,12 +10,13 @@ import javafx.stage.Stage;
 import java.io.*;
 import java.net.Socket;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class Courier {
     private final String userName;
     private int courierID;
     private final int executionTime;
-    private Order order;
+    private final AtomicReference<Order> orderRef = new AtomicReference<>();
 
     private final String hostname;
     private final int port;
@@ -86,7 +87,8 @@ public class Courier {
     // simulira dostavu
     private void handleNewOrder(String responseJson) {
         System.out.println(gson.fromJson(responseJson, OrderStateMessage.class));
-        order = gson.fromJson(responseJson, OrderStateMessage.class).getOrder();
+        final Order order = gson.fromJson(responseJson, OrderStateMessage.class).getOrder();
+        orderRef.set(order);
         order.setCourierID(courierID);
         order.setState(OrderState.DELIVERING);
         SceneCourier.updateOrder(order);
@@ -97,11 +99,13 @@ public class Courier {
                 Thread.sleep(this.executionTime); // simulacija dostave
                 order.setState(OrderState.DELIVERED);
                 toServer.println(gson.toJson(new OrderStateMessage(MessageType.ORDER_STATE, order)));
-            } catch (InterruptedException | NullPointerException e) {
+            } catch (InterruptedException e) {
                 System.err.println("Delivering interrupted...");
             } finally {
-                SceneCourier.clearOrder();
-                order = null;
+                if (orderRef.get() == order) {
+                    SceneCourier.clearOrder();
+                    orderRef.set(null);
+                }
             }
         });
         deliveryThread.start();
@@ -110,7 +114,7 @@ public class Courier {
     // prekida dostavu u slucaju otkazivanja
     private void handleCanceledOrder(String responseJson) {
         System.out.println(gson.fromJson(responseJson, CancelOrderMessage.class));
-        if (order != null && gson.fromJson(responseJson, CancelOrderMessage.class).getOrder().equals(order))
+        if (orderRef.get() != null && gson.fromJson(responseJson, CancelOrderMessage.class).getOrder().equals(orderRef.get()))
             if (deliveryThread != null && deliveryThread.isAlive())
                 deliveryThread.interrupt();
     }
@@ -118,15 +122,15 @@ public class Courier {
     // prekida dostavu u slucaju iskljucivanja User-a
     private void handleLostUser(String responseJson) {
         System.out.println(gson.fromJson(responseJson, LogOutMessage.class));
-        if (order != null && gson.fromJson(responseJson, LogOutMessage.class).getOrders().contains(order))
+        if (orderRef.get() != null && gson.fromJson(responseJson, LogOutMessage.class).getOrders().contains(orderRef.get()))
             if (deliveryThread != null && deliveryThread.isAlive())
                 deliveryThread.interrupt();
     }
 
     private void shutdown() {
         try {
-            if (order != null)
-                toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.COURIER, this.courierID, Set.of(order))));
+            if (orderRef.get() != null)
+                toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.COURIER, this.courierID, Set.of(orderRef.get()))));
             else
                 toServer.println(gson.toJson(new LogOutMessage(MessageType.LOGOUT, ClientType.COURIER, this.courierID)));
 

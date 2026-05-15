@@ -44,8 +44,10 @@ public class Restaurant {
         this.restaurantWorkersThreadPool = Executors.newFixedThreadPool(2);
 
         try (Scanner sc = new Scanner(file)) {
-            while (sc.hasNext())
-                this.menu.addAll(Arrays.asList(sc.nextLine().split("\\s*,\\s*")));
+            while (sc.hasNextLine()) {
+                String line = sc.nextLine().trim();
+                this.menu.add(line);
+            }
         } catch (FileNotFoundException e) {
             System.err.println("File not found...");
             e.printStackTrace();
@@ -109,8 +111,14 @@ public class Restaurant {
                 .mapToInt(OrderItem::getQuantity).sum());
         // System.out.println(newOrder);
         pendingOrders.add(newOrder);
-        prepareOrder(newOrder);
         SceneRestaurant.addNewOrder(newOrder);
+        try {
+            Thread.sleep(3000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        prepareOrder(newOrder);
+
     }
 
     // simulira pripremu narudzbe - azurira GUI i obavjestava user-a o stanju narudzbe

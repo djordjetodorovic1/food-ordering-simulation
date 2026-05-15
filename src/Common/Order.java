@@ -74,6 +74,14 @@ public class Order {
         this.state = state;
     }
 
+    public double getTotalPrice() {
+        double total = 0;
+        for (OrderItem item : orderItems) {
+            total += item.getPrice() * item.getQuantity();
+        }
+        return total;
+    }
+
     @Override
     public String toString() {
         return "Order->" +
